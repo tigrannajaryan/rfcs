@@ -154,9 +154,17 @@ Appendix A contains Protocol Buffer definitions for `HelloRequest`, `HelloRespon
 
 OTLP utilizes gRPC stream in a way that allows Level 7 load balancers that may be in the network path between the client and the server to re-balance the traffic periodically. This is necessary so that the traffic is not pinned by the load balancer to one server for the entire duration of telemetry data sending, thus potentially leading to imbalanced load of servers located behind the load balancer.
 
-OTLP achieves this by periodically closing and reopening the gRPC stream. This behavior is based on the fact that Level 7 load balancers that are gRPC-aware make re-balancing decisions when a new stream is opened.
+OTLP achieves this by periodically closing and reopening the gRPC stream. This behavior is based on the fact that Level 7 load balancers that are gRPC-aware (such as Envoy) make re-balancing decisions when a new stream is opened.
 
-After sending an `Export` request the client MUST check how much time passed since the stream was last opened and if it is longer than a configurable period of time the stream MUST be closed and opened again. After opening the stream the client SHOULD perform a `Hello` message exchange.
+![Load Balancing](images/otlp-load-balancing-timeline.png)
+
+The client will periodically close and re-open the stream to help Load Balancers to re-balance the traffic.
+
+Client MUST re-open the stream after sending an `Export` request if any  of these conditions is true:
+
+- Time passed since the stream was last opened is longer than a user-configurable re-balancing period. Default re-balancing period should be 30 seconds with 5 seconds of random jitter.
+
+- Number of batches exported since the stream was last opened is greater than user-configurable batch limit. Default batch limit should be 1000 batches with 200 batches of random jitter.
 
 Note that in Pipelined mode the client MUST continue processing responses that the server may send to a stream that is closed from the client side until that stream is closed from the server side as well. This means that during this transition there may exist more than one stream of data between the client and the server.
 
