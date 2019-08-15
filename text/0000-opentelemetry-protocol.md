@@ -10,7 +10,6 @@ OpenTelemetry Protocol (OTLP) specification describes the encoding, transport an
 
 - [Motivation](#motivation)
 - [Protocol Details](#protocol-details)
-  - [Hello Handshake](#hello-handshake)
   - [Export Request and Response](#export-request-and-response)
   - [Client Modes](#client-modes)
   - [Server Response](#server-response)
@@ -46,19 +45,11 @@ OTLP defines the encoding of telemetry data and the protocol used to exchange da
 
 This specification defines how OTLP is implemented over [gRPC](https://grpc.io/) and specifies corresponding [Protocol Buffers](https://developers.google.com/protocol-buffers/docs/overview) schema. Future extensions to OTLP may define implementations over other transports. For details of gRPC service definition see section [gRPC Transport](#grpc-transport).
 
-OTLP is a request/response style protocols: the clients send requests, the server replies with corresponding responses. There are 2 supported requests and response types: `Hello` and `Export`.
-
-### Hello Handshake
-
-The message exchange between the client and server SHOULD start by the client initiating the underlying transport and sending `Hello` request. The server replies with `Hello` response. `Hello` request and response have no payload in this version of OTLP. They are intended to be extended in the future with a payload that describes client's and server's extended capabilities when such new capabilities are added to the protocol. The initial exchange of `Hello` messages is a handshake that allows client and server to discover each other's capabilities in a backwards compatible manner (see more about how future versions of the protocol will ensure interoperability in a separate section below).
-
-The client MAY choose to avoid sending `Hello` request and proceed to sending `Export` requests immediately after the transport is established (see the next section for `Export` description). From the server's perspective this behavior should be equivalent to a successful exchange of  `Hello` request and response with empty payloads.
-
-The server MUST always reply with a corresponding `Hello` response to every `Hello` request.
+OTLP is a request/response style protocols: the clients send requests, the server replies with corresponding responses. This document defines one requests and response type: `Export`.
 
 ### Export Request and Response
 
-After `Hello` request and response the client starts sending telemetry data using `Export` requests.  The client continuously sends a sequence of `Export` requests to the server and expects to receive a response to each request:
+After establishing the underlying transport the client starts sending telemetry data using `Export` requests.  The client continuously sends a sequence of `Export` requests to the server and expects to receive a response to each request:
 
 ![Request-Response](images/otlp-request-response.png)
 
@@ -96,7 +87,9 @@ In Pipelined mode the client may send multiple `Export` requests without waiting
 
 The number of unacknowledged requests for which the client did not receive responses yet is defined by the window size of underlying transport (for gRPC see details about [how the window size is calculated](https://grpc.io/blog/2017-08-22-grpc-go-perf-improvements/)).
 
-If the client detects that the underlying transport is broken and must be re-established the client MUST retry sending all requests that are still pending acknowledgement after re-establishing the transport. If the client is shutting down (e.g. when the containing process wants to exit) the client MUST wait until all pending acknowledgements are received or until an implementation specific timeout expires. This ensures reliable delivery of telemetry data.
+If the client detects that the underlying transport is broken and must be re-established the client will optionally retry sending all requests that are still pending acknowledgement after re-establishing the transport. The client implementation SHOULD expose an option to turn on and off the retrying.
+
+If the client is shutting down (e.g. when the containing process wants to exit) the client will optionally wait until all pending acknowledgements are received or until an implementation specific timeout expires. This ensures reliable delivery of telemetry data. The client implementation SHOULD expose an option to turn on and off the waiting during shutdown.
 
 If the client is unable to deliver a certain request (e.g. it retried but failed multiple times or shutdown timer expired while waiting for acknowledgements) the client SHOULD record the fact that the data was not delivered.
 
@@ -112,7 +105,7 @@ The Server replies to every `Export` request received from the client by a corre
 
 `Export` response includes a `result_code` field, which indicates whether the server was able to successfully process the received data. Possible values for `result_code` field are:
 
-- `Success` - telemetry data is successfully processed by the server.
+- `Success` - telemetry data is successfully processed by the server. If the server receives an empty request (a request that does not carry any telemetry data) the server SHOULD respond with `Success`.
 
 - `FailedNoneRetryable` - processing of telemetry data failed. The client MUST NOT retry sending the same telemetry data. The telemetry data MUST be dropped. This for example can happen when the request contains bad data and cannot be deserialized or otherwise processed by the server. The client SHOULD maintain a counter of such dropped data.
 
@@ -132,23 +125,18 @@ This field is used by the server to signal backpressure to the client. The value
 
 #### Service Definition
 
-`Hello` request and response is done via a unary gRPC call.
-
 `Export` requests and responses are delivered using bidirectional gRPC streams.
 
 This is OTLP over gRPC Service definition:
 
 ```
 service StreamExporter {
-  // Hello handshake.
-  rpc Hello(HelloRequest) returns (HelloResponse) {}
-
   // Sends a batch of telemetry data.
   rpc Export(stream ExportRequest) returns (stream ExportResponse) {}
 }
 ```
 
-Appendix A contains Protocol Buffer definitions for `HelloRequest`, `HelloResponse`, `ExportRequest` and `ExportResponse`.
+Appendix A contains Protocol Buffer definitions for `ExportRequest` and `ExportResponse`.
 
 #### Load Balancing
 
@@ -226,7 +214,7 @@ OTLP does not use explicit protocol version numbering. OTLP's interoperability o
 
 2. For minor changes to the protocol future versions and extension of OTLP are encouraged to use the ability of Protocol Buffers to evolve message schema in backwards compatible manner. Newer versions of OTLP may add new fields to messages that will be ignored by clients and servers that do not understand these fields. In many cases careful design of such schema changes and correct choice of default values for new fields is enough to ensure interoperability of different versions without nodes explicitly detecting that their peer node has different capabilities.
 
-3. More significant changes must be explicitly defined as new optional capabilities. Such capabilities SHOULD be discovered by client and server implementations during `Hello` handshake. The capabilities SHOULD be described by the payload contained in `Hello` request and response. The mandatory capabilities defined by this specification are implied and SHOULD not be explicitly encoded in the `Hello` payload. A future implementation of OTLP that wants to use a certain optional capability SHOULD use `Hello` handshake to announce its capabilities and discover capabilities of the peer and adjust its behavior to match the expectation of a peer that does not support a particular capability.
+3. More significant changes must be explicitly defined as new optional capabilities in future RFCs. Such capabilities SHOULD be discovered by client and server implementations after establishing the underlying transport. The exact discovery mechanism SHOULD be described in future RFCs which define the new capabilities and typically can be implemented by making a discovery request/response message exchange from the client to server. The mandatory capabilities defined by this specification are implied and do not require a discovery. The implementation which supports a new, optional capability MUST adjust its behavior to match the expectation of a peer that does not support a particular capability.
 
 The current version of OTLP is the initial version that describes mandatory capabilities only. Implementations of this specification SHOULD NOT attempt to detect the capabilities of their peers and should operate as defined in this document.
 
@@ -253,16 +241,6 @@ Another goal for telemetry protocol is achieving high compression ratios for tel
 This is Protocol Buffers schema for `Export` request and response:
 
 ```
-// Hello is the first request from client to server.
-message HelloRequest {
-    // Empty in initial version of OTLP.
-}
-
-// Response to Hello request.
-message HelloResponse {
-    // Empty in initial version of OTLP.
-}
-
 // A request from client to server containing telemetry data to export.
 message ExportRequest {
   // Unique sequential ID generated by the client.
@@ -457,7 +435,7 @@ Both the Client and the Server are also a `Node`. This term is used in the docum
 
 ## Acknowledgements
 
-Special thanks to Owais Lone who helped to conduct experiments with Load Balancers and to Paulo Janotti for thoughtful discussions around the protocol.
+Special thanks to Owais Lone who helped to conduct experiments with Load Balancers, to Paulo Janotti, Bogdan Drutu and Yuri Shkuro for thoughtful discussions around the protocol.
 
 ## Author's Address
 
