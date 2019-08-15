@@ -18,6 +18,7 @@ OpenTelemetry Protocol (OTLP) specification describes the encoding, transport an
 - [Implementation Recommendations](#implementation-recommendations)
   - [Pipelined Mode](#pipelined-mode)
   - [Multi-Destination Exporting](#multi-destination-exporting)
+  - [Load Balancing](#load-balancing)
 - [Trade-offs and Mitigations](#trade-offs-and-mitigations)
 - [Future Versions and Interoperability](#future-versions-and-interoperability)
 - [Prior Art, Alternatives and Future Possibilities](#prior-art-alternatives-and-future-possibilities)
@@ -87,7 +88,7 @@ In Pipelined mode the client may send multiple `Export` requests without waiting
 
 The number of unacknowledged requests for which the client did not receive responses yet is defined by the window size of underlying transport (for gRPC see details about [how the window size is calculated](https://grpc.io/blog/2017-08-22-grpc-go-perf-improvements/)).
 
-If the client detects that the underlying transport is broken and must be re-established the client will optionally retry sending all requests that are still pending acknowledgement after re-establishing the transport. The client implementation SHOULD expose an option to turn on and off the retrying.
+If the client detects that the underlying transport is broken and must be re-established the client will optionally retry sending all requests that are still pending acknowledgement after re-establishing the transport. The client implementation SHOULD expose an option to turn on and off the retrying; by default retrying SHOULD be on.
 
 If the client is shutting down (e.g. when the containing process wants to exit) the client will optionally wait until all pending acknowledgements are received or until an implementation specific timeout expires. This ensures reliable delivery of telemetry data. The client implementation SHOULD expose an option to turn on and off the waiting during shutdown.
 
@@ -100,6 +101,8 @@ Note that the server does not need to know in what mode the client operates. The
 ### Server Response
 
 The Server replies to every `Export` request received from the client by a corresponding `Export` response. The ID field of the response is set equal to the ID field of the request.
+
+If the Client does not receive a response to a particular request after a configurable period of time then the client SHOULD drop the request. The client SHOULD maintain a counter of such dropped data. This is the recommended approach because the reason that the response is not received may be that the server fails to generate a response to this particular request. Attempting to re-try sending may cause more problems at the server side. This timeout SHOULD be configured to be significantly larger than it normally takes the server to respond.
 
 #### Result Code
 
@@ -117,9 +120,51 @@ OTLP allows backpressure signalling.
 
 If the server is unable to keep up with the pace of data it receives from the client then it SHOULD signal that fact to the client. The client MUST then throttle itself to avoid overwhelming the server.
 
-`Export` response includes a `throttle_period_millisec` field, which indicates the minimum duration in milliseconds that the client MUST wait before sending the next `Export` request. The waiting period starts from the moment the client receives such `Export` response. The value of 0 for `throttle_period_millisec` indicates that the client may send the next `Export` request immediately and is an indication that no throttling is requested by the server.
+When using gRPC transport to signal backpressure the server SHOULD close the stream and return an error with code [Unavailable](https://godoc.org/google.golang.org/grpc/codes) and MAY supply additional [details via status](https://godoc.org/google.golang.org/grpc/status#Status.WithDetails) using [RetryInfo](https://github.com/googleapis/googleapis/blob/master/google/rpc/error_details.proto#L40). Here is a sample Go code to illustrate:
 
-This field is used by the server to signal backpressure to the client. The value of `throttle_period_millisec` is determined by the server and is implementation dependant. The server SHOULD choose a `throttle_period_millisec` value that is big enough to give the server time to recover, yet is not too big to cause the client to drop data while it is throttled.
+```go
+  // Do this on server side.
+  st, err := status.New(codes.Unavailable, "Server is unavailable").
+    WithDetails(&errdetails.RetryInfo{RetryDelay: &duration.Duration{Seconds: 30}})
+  if err != nil {
+    log.Fatal(err)
+  }
+
+  return st.Err()
+  
+  ...
+
+  // Do this on client side.
+  st := status.Convert(err)
+  for _, detail := range st.Details() {
+    switch t := detail.(type) {
+    case *errdetails.RetryInfo:
+      if t.RetryDelay.Seconds > 0 || t.RetryDelay.Nanos > 0 {
+        // Wait before retrying.
+      }
+    }
+  }
+```
+
+When the client receives this signal it SHOULD follow the recommendations outlined in documentation for `RetryInfo`:
+
+```
+// Describes when the clients can retry a failed request. Clients could ignore
+// the recommendation here or retry when this information is missing from error
+// responses.
+//
+// It's always recommended that clients should use exponential backoff when
+// retrying.
+//
+// Clients should wait until `retry_delay` amount of time has passed since
+// receiving the error response before retrying.  If retrying requests also
+// fail, clients should use an exponential backoff scheme to gradually increase
+// the delay between retries based on `retry_delay`, until either a maximum
+// number of retires have been reached or a maximum retry delay cap has been
+// reached.
+```
+
+The value of `retry_delay` is determined by the server and is implementation dependant. The server SHOULD choose a `retry_delay` value that is big enough to give the server time to recover, yet is not too big to cause the client to drop data while it is throttled.
 
 ### gRPC Transport
 
@@ -137,32 +182,6 @@ service StreamExporter {
 ```
 
 Appendix A contains Protocol Buffer definitions for `ExportRequest` and `ExportResponse`.
-
-#### Load Balancing
-
-OTLP utilizes gRPC stream in a way that allows Level 7 load balancers that may be in the network path between the client and the server to re-balance the traffic periodically. This is necessary so that the traffic is not pinned by the load balancer to one server for the entire duration of telemetry data sending, thus potentially leading to imbalanced load of servers located behind the load balancer.
-
-OTLP achieves this by periodically closing and reopening the gRPC stream. This behavior is based on the fact that Level 7 load balancers that are gRPC-aware (such as Envoy) make re-balancing decisions when a new stream is opened.
-
-![Load Balancing](images/otlp-load-balancing-timeline.png)
-
-The client will periodically close and re-open the stream to help Load Balancers to re-balance the traffic.
-
-Client MUST re-open the stream after sending an `Export` request if any  of these conditions is true:
-
-- Time passed since the stream was last opened is longer than a user-configurable re-balancing period. Default re-balancing period should be 30 seconds with 5 seconds of random jitter.
-
-- Number of batches exported since the stream was last opened is greater than user-configurable batch limit. Default batch limit should be 1000 batches with 200 batches of random jitter.
-
-Note that in Pipelined mode the client MUST continue processing responses that the server may send to a stream that is closed from the client side until that stream is closed from the server side as well. This means that during this transition there may exist more than one stream of data between the client and the server.
-
-The default recommended time duration after which the stream is reopened is about 30 seconds. Client implementations may expose this duration as a configuration parameter.
-
-Below is a example of how the reference implementation behaves when multiple clients send data via load balancer to one server and one more server is added to the load balancer at some point in time. The horizontal axis is time in minutes, the vertical axis is telemetry data receiving rate by servers:
-
-![Load Re-balancing](images/otlp-load-balancing.png)
-
-In this chart initially the entire traffic is handled by one server (green line), then a second server is attached to Load Balancer (blue chart) and we can see that the total traffic is rebalanced and split evenly between the servers.
 
 ### Other Transports
 
@@ -185,6 +204,32 @@ In such situation the the client SHOULD implement queuing, acknowledgement handl
 ![Multi-Destination Exporting](images/otlp-multi-destination.png)
 
 This ensures that all destination servers receive the data regardless of their speed of reception (within the available limits imposed by the size of the client-side queue).
+
+### Load Balancing
+
+Implementations SHOULD utilize gRPC stream in a way that allows Level 7 load balancers that may be in the network path between the client and the server to re-balance the traffic periodically. This is necessary so that the traffic is not pinned by the load balancer to one server for the entire duration of telemetry data sending, thus potentially leading to imbalanced load of servers located behind the load balancer.
+
+Implementations can achieve this by periodically closing and reopening the gRPC stream. This will trigger the re-balancing by Level 7 load balancers that are gRPC-aware (such as Envoy) since they make re-balancing decisions when a new stream is opened.
+
+![Load Balancing](images/otlp-load-balancing-timeline.png)
+
+The client SHOULD periodically close and re-open the stream to help Load Balancers to re-balance the traffic.
+
+Client SHOULD close and re-open the stream after sending an `Export` request if any of these conditions is true:
+
+- Time passed since the stream was last opened is longer than a user-configurable re-balancing period `RebalanceTimeout`.
+
+- Number of requests exported since the stream was last opened is greater than user-configurable request count limit `RebalanceRequests`.
+
+In Pipelined mode the client SHOULD continue processing responses that the server may send to a stream that is closed from the client side until that stream is closed from the server side as well. This means that during this transition there may exist more than one stream of data between the client and the server.
+
+Similar stream re-opening MAY also be initiated from the server-side, however it is usually less preferable since it results in the loss of requests which are not yet acknowledged and requires the client to re-send the requests. Even if the client is well-behaved and does the re-sending correctly this still results in overall worse throughput of the protocol. Implementations where the server needs to serve a mix of clients some of which are utilizing stream re-opening strategy and some others don't are recommended to be configured `RebalanceTimeout` and `RebalanceRequests` values that are larger at server-side than the corresponding values at client-side. This way the protocol will fall back to stream re-opening at the server-side only for the clients, which don't already utilize client-side stream re-opening.
+
+Below is a example of how the reference implementation behaves when multiple clients send data via load balancer to one server and one more server is added to the load balancer at some point in time. The horizontal axis is time in minutes, the vertical axis is telemetry data receiving rate by servers:
+
+![Load Re-balancing](images/otlp-load-balancing.png)
+
+In this chart initially the entire traffic is handled by one server (green line), then a second server is attached to Load Balancer (blue chart) and we can see that the total traffic is rebalanced and split evenly between the servers.
 
 ## Trade-offs and mitigations
 
@@ -272,10 +317,6 @@ message ExportResponse {
     FailedRetryable = 2;
   }
   ResultCode result_code = 2;
-
-  // How long the client must wait before sending the next ExportRequest. 0 indicates
-  // that the client doesn't need to wait.
-  uint32 throttle_period_millisec = 3;
 }
 
 // A list of spans from a Node.
