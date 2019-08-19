@@ -66,7 +66,7 @@ Synchronous mode is simpler to implement and provides good performance in sub-mi
 
 Pipelined mode requires somewhat more complicated implementation but provides significantly better throughput on high latency networks. 
 
-Clients may choose to implement either Synchronous or Pipelined mode (or both if desired).
+Clients are recommended to implemented both modes but may choose to implement only one.
 
 The choice of client mode does not affect the server behavior. OTLP implementation does not require the server to be aware of the mode used by the client. Clients operating in different modes can connect to the same server and even switch the mode to a different one during the connection session without requiring any special arrangement on the server side or in intermediary network hops such as load balancers.
 
@@ -76,7 +76,7 @@ In Synchronous mode after sending the request the client MUST wait until the res
 
 ![Synchronous](images/otlp-synchronous.png)
 
-Synchronous mode is recommended when simplicity of implementation is desirable and when the client and the server are connected via very low-latency network, such as for example when the client is an instrumented application and the server is a OpenTelemetry Service running as as a local daemon.
+Synchronous mode is recommended when simplicity of implementation is desirable and when the client and the server are connected via very low-latency network, such as for example when the client is an instrumented application and the server is a OpenTelemetry Service running as a local daemon.
 
 The maximum achievable throughput in synchronous mode is `max_request_size / (network_latency + server_response_time)`. For example if the request can contain at most 100 spans, network roundtrip latency is 200ms and server response time is 300 ms, then the maximum achievable throughput is `100 spans / (200ms+300ms)` or 200 spans per second. It is easy to see that in high latency networks or when the server response time is high it is difficult to achieve good throughput unless requests are very big (even when client, server and network throughput potentially allow much bigger processing rate).
 
@@ -338,11 +338,7 @@ message NodeMetrics {
 
 ## Appendix B - Performance Benchmarks
 
-Benchmarking of OTLP vs other telemetry protocols was done using [reference implementation in Go](https://github.com/tigrannajaryan/exp-otelproto). In this OTLP implementation telemetry data, particularly Span batches are represented using a slightly modified Protocol Buffers schema taken from OpenCensus Protocol. Primary differences from OpenCensus schema are:
-
-- Eliminated TruncatableString and replaced by plain string.
-- Eliminated AttributesMap structure and used a map directly instead.
-- Replaced google.protobuf.Timestamp by int64 timestamp in Unix epoch nanoseconds.
+Benchmarking of OTLP vs other telemetry protocols was done using [reference implementation in Go](https://github.com/tigrannajaryan/exp-otelproto).
 
 ### OTLP vs OpenCensus
 
