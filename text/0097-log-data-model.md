@@ -1071,31 +1071,31 @@ All other fields |                    |                                         
     <td>agent.type</td>
     <td>string</td>
     <td>Type of agent</td>
-    <td>resource[“telemetry.sdk.language”]</td>
+    <td>resource["telemetry.sdk.language"]</td>
   </tr>
   <tr>
     <td>agent.version</td>
     <td>string</td>
     <td>Version of agent</td>
-    <td>resource[“telemetry.sdk.version”]</td>
+    <td>resource["telemetry.sdk.version"]</td>
   </tr>
   <tr>
     <td>source.ip, client.ip</td>
     <td>string</td>
     <td>The IP address that the request was made from.</td>
-    <td>resource[“net.peer.ip”] or resource[“net.host.ip”]</td>
+    <td>attributes["client.ip"] or resource["source.ip"]</td>
   </tr>
   <tr>
     <td>cloud.account.id</td>
     <td>string</td>
     <td>ID of the account in the given cloud</td>
-    <td>resource[“cloud.account.id”]</td>
+    <td>resource["cloud.account.id"]</td>
   </tr>
   <tr>
     <td>cloud.availability_zone</td>
     <td>string</td>
     <td>Availability zone in which this host is running.</td>
-    <td>resource[“cloud.zone”]</td>
+    <td>resource["cloud.zone"]</td>
   </tr>
   <tr>
     <td>cloud.instance.id</td>
@@ -1119,31 +1119,31 @@ All other fields |                    |                                         
     <td>cloud.provider</td>
     <td>string</td>
     <td>Name of the cloud provider. Example values are aws, azure, gcp, or digitalocean.</td>
-    <td>resource[“cloud.provider”]</td>
+    <td>resource["cloud.provider"]</td>
   </tr>
   <tr>
     <td>cloud.region</td>
     <td>string</td>
     <td>Region in which this host is running.</td>
-    <td>resource[“cloud.region”]</td>
+    <td>resource["cloud.region"]</td>
   </tr>
   <tr>
     <td>cloud.image.id*</td>
     <td>string</td>
     <td></td>
-    <td>resource[“host.image.name”]</td>
+    <td>resource["host.image.name"]</td>
   </tr>
   <tr>
     <td>container.id</td>
     <td>string</td>
     <td>Unique container id</td>
-    <td>resource[“container.id”]</td>
+    <td>resource["container.id"]</td>
   </tr>
   <tr>
     <td>container.image.name</td>
     <td>string</td>
     <td>Name of the image the container was built on.</td>
-    <td>resource[“container.image.name”]</td>
+    <td>resource["container.image.name"]</td>
   </tr>
   <tr>
     <td>container.image.tag</td>
@@ -1161,43 +1161,43 @@ All other fields |                    |                                         
     <td>container.name</td>
     <td>string</td>
     <td>Container name.</td>
-    <td>resource[“container.name”]</td>
+    <td>resource["container.name"]</td>
   </tr>
   <tr>
     <td>container.runtime</td>
     <td>string</td>
-    <td>Runtime managing this container. Example: “docker”</td>
+    <td>Runtime managing this container. Example: "docker"</td>
     <td>**resource</td>
   </tr>
   <tr>
     <td>destination.address</td>
     <td>string</td>
     <td>Destination address for the event</td>
-    <td>attributes[“destination.address”]</td>
+    <td>attributes["destination.address"]</td>
   </tr>
   <tr>
     <td>error.code</td>
     <td>string</td>
     <td>Error code describing the error.</td>
-    <td>attributes[“error.code”]</td>
+    <td>attributes["error.code"]</td>
   </tr>
   <tr>
     <td>error.id</td>
     <td>string</td>
     <td>Unique identifier for the error.</td>
-    <td>attributes[“error.id”]</td>
+    <td>attributes["error.id"]</td>
   </tr>
   <tr>
     <td>error.message</td>
     <td>string</td>
     <td>Error message.</td>
-    <td>attributes[“error.stack_trace”]</td>
+    <td>attributes["error.message"]</td>
   </tr>
   <tr>
     <td>error.stack_trace</td>
     <td>string</td>
     <td>The stack trace of this error in plain text.</td>
-    <td>**resource</td>
+    <td>attributes["error.stack_trace]</td>
   </tr>
   <tr>
     <td>host.architecture</td>
@@ -1221,26 +1221,26 @@ For example, on Windows this could be the host’s Active Directory domain or Ne
 
 It normally contains what the hostname command returns on the host machine.</td>
 
-<td>resource[“host.hostname”]</td>
+<td>resource["host.hostname"]</td>
 
   </tr>
   <tr>
     <td>host.id</td>
     <td>string</td>
     <td>Unique host id.</td>
-    <td>resource[“host.id”]</td>
+    <td>resource["host.id"]</td>
   </tr>
   <tr>
     <td>host.ip</td>
     <td>Array of string</td>
     <td>Host IP</td>
-    <td>resource[“host.ip”]</td>
+    <td>resource["host.ip"]</td>
   </tr>
   <tr>
     <td>host.mac</td>
     <td>array of string</td>
     <td>MAC addresses of the host</td>
-    <td>resource[“host.mac”]</td>
+    <td>resource["host.mac"]</td>
   </tr>
   <tr>
     <td>host.name</td>
@@ -1249,14 +1249,14 @@ It normally contains what the hostname command returns on the host machine.</td>
 
 It may contain what hostname returns on Unix systems, the fully qualified, or a name specified by the user. </td>
 
-<td>resource[“host.name”]</td>
+<td>resource["host.name"]</td>
 
   </tr>
   <tr>
     <td>host.type</td>
     <td>string</td>
     <td>Type of host.</td>
-    <td>resource[“host.type”]</td>
+    <td>resource["host.type"]</td>
   </tr>
   <tr>
     <td>host.uptime</td>
@@ -1265,9 +1265,7 @@ It may contain what hostname returns on Unix systems, the fully qualified, or a 
     <td>?</td>
   </tr>
   <tr>
-    <td>service.ephemeral_id
-
-</td>
+    <td>service.ephemeral_id</td>
     <td>string</td>
     <td>Ephemeral identifier of this service</td>
     <td>**resource</td>
@@ -1288,13 +1286,13 @@ It may contain what hostname returns on Unix systems, the fully qualified, or a 
     <td>service.node.name</td>
     <td>string</td>
     <td>Specific node serving that service</td>
-    <td>resource[“service.instance.id”]</td>
+    <td>resource["service.instance.id"]</td>
   </tr>
   <tr>
     <td>service.state</td>
     <td>string</td>
     <td>Current state of the service.</td>
-    <td>**resource</td>
+    <td>attributes["service.state"]</td>
   </tr>
   <tr>
     <td>service.type</td>
@@ -1306,7 +1304,7 @@ It may contain what hostname returns on Unix systems, the fully qualified, or a 
     <td>service.version</td>
     <td>string</td>
     <td>Version of the service the data was collected from.</td>
-    <td>resource[“service.version”]</td>
+    <td>resource["service.version"]</td>
   </tr>
   <tr>
     <td></td>
